@@ -53,7 +53,7 @@ HOMOLOGACION_TIPO_UC = {1: 5, 2: 6, 3: 7, 4: 10, 5: 13, 6: 21, 7: 21, 8: 21, 9: 
 HORA_MIN = 8 * 60    # 08:00
 HORA_MAX = 17 * 60   # 17:00
 FORMATO_FECHA = "%d/%m/%Y %H:%M"
-MAX_OBSERVACION = 200
+MAX_OBSERVACION = 400
 
 
 # ----------------------------------------------------------------------------
@@ -266,12 +266,34 @@ else:
         st.warning("Faltan BASE y/o PQR_Dispower: el consolidado solo tiene los registros del IT2.")
 
     it4 = pd.concat(partes, ignore_index=True)
-    st.metric("Total filas IT4", len(it4))
-    st.dataframe(it4, use_container_width=True, height=450)
-    st.download_button(
-        "Descargar IT4",
-        data=a_excel(it4),
+    sin_fecha_fin = it4["Fecha y hora fin"].fillna("").astype(str).str.strip() == ""
+    it4_final = it4[~sin_fecha_fin].reset_index(drop=True)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Filas IT4 editable", len(it4))
+    c2.metric("Filas IT4 final", len(it4_final))
+    c3.metric("Sin fecha fin (excluidas del final)", int(sin_fecha_fin.sum()))
+
+    tab_final, tab_editable = st.tabs(["IT4 final", "IT4 editable"])
+    with tab_final:
+        st.dataframe(it4_final, use_container_width=True, height=450)
+    with tab_editable:
+        st.dataframe(it4, use_container_width=True, height=450)
+
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    d1, d2 = st.columns(2)
+    d1.download_button(
+        "Descargar IT4 final",
+        data=a_excel(it4_final),
         file_name=f"IT4_{mes:02d}_{anio}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mime=mime,
         type="primary",
+        help="Sin los registros que no tienen fecha fin",
+    )
+    d2.download_button(
+        "Descargar IT4 editable",
+        data=a_excel(it4),
+        file_name=f"IT4_{mes:02d}_{anio}_editable.xlsx",
+        mime=mime,
+        help="Todos los registros, incluidos los que no tienen fecha fin",
     )
