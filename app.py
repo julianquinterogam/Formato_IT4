@@ -35,12 +35,12 @@ COLUMNAS_IT2 = [
     "Codigo Localidad",
     "Tipo de Elemento",
     "Serial del Elemento",
-    "Mantenimiento Realizado",
     "Fecha y hora de inicio",
     "Fecha y hora fin",
 ]
 
 CAUSAL_MANTENIMIENTO = 5
+OBSERVACION_MANTENIMIENTO = "Ejecucion de mantenimientos"
 CAUSAL_PQR = 7
 
 COLUMNAS_BASE = ["NIU", "cod_localidad", "TIPO_UC", "SERIAL_INTERNO"]
@@ -52,7 +52,7 @@ HOMOLOGACION_TIPO_UC = {1: 5, 2: 6, 3: 7, 4: 10, 5: 13, 6: 21, 7: 21, 8: 21, 9: 
 # Horario laboral para las horas generadas (minutos desde medianoche)
 HORA_MIN = 8 * 60    # 08:00
 HORA_MAX = 17 * 60   # 17:00
-FORMATO_FECHA = "%d/%m/%Y %H:%M"
+FORMATO_FECHA = "%d-%m-%Y %H:%M"
 MAX_OBSERVACION = 400
 
 
@@ -108,7 +108,7 @@ def procesar_it2(df_it2, mes, anio):
         "Causal de no prestacion": CAUSAL_MANTENIMIENTO,
         "Tipo elemento afectado": df["Tipo de Elemento"],
         "Serial del elemento afectado": df["Serial del Elemento"],
-        "Observacion": df["Mantenimiento Realizado"].apply(limpiar_texto),
+        "Observacion": OBSERVACION_MANTENIMIENTO,
     })[COLUMNAS_IT4]
     return salida.reset_index(drop=True), descartados
 
@@ -186,6 +186,11 @@ def procesar_pqr(df_pqr, df_base, mes, anio):
         "pqr_abiertas": int(pqr["FechaCierre"].isna().sum()),
     }
     return salida.reset_index(drop=True), sin_base, resumen
+
+
+def a_csv(df):
+    """CSV delimitado por comas, UTF-8, con encabezados."""
+    return df.to_csv(index=False, sep=",").encode("utf-8")
 
 
 def a_excel(df):
@@ -281,7 +286,7 @@ else:
         st.dataframe(it4, use_container_width=True, height=450)
 
     mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    d1, d2 = st.columns(2)
+    d1, d2, d3 = st.columns(3)
     d1.download_button(
         "Descargar IT4 final",
         data=a_excel(it4_final),
@@ -296,4 +301,11 @@ else:
         file_name=f"IT4_{mes:02d}_{anio}_editable.xlsx",
         mime=mime,
         help="Todos los registros, incluidos los que no tienen fecha fin",
+    )
+    d3.download_button(
+        "Descargar IT4 final (CSV)",
+        data=a_csv(it4_final),
+        file_name=f"IT4_{mes:02d}_{anio}.csv",
+        mime="text/csv",
+        help="Mismo contenido del IT4 final, delimitado por comas",
     )
