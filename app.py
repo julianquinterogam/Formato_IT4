@@ -166,6 +166,12 @@ def procesar_pqr(df_pqr, df_base, mes, anio):
     )
     pqr = pqr[activas]
 
+    # PQR repetidas: mismo NUI con la misma FechaCreacion y FechaCierre (tickets duplicados).
+    # Generarian filas identicas y el SUI las rechaza por unicidad; se deja solo una.
+    repetidas = pqr.duplicated(["NUI", "FechaCreacion", "FechaCierre"], keep="first")
+    pqr_repetidas = pqr[repetidas]
+    pqr = pqr[~repetidas]
+
     # Cruce con BASE: todos los elementos del NUI; los NUI que no esten se eliminan
     base = df_base[COLUMNAS_BASE].copy()
     base = base[base["TIPO_UC"].isin(HOMOLOGACION_TIPO_UC)]
@@ -194,6 +200,7 @@ def procesar_pqr(df_pqr, df_base, mes, anio):
 
     resumen = {
         "pqr_mes": int(activas.sum()),
+        "pqr_repetidas": len(pqr_repetidas),
         "pqr_sin_base": len(sin_base),
         "pqr_reportadas": len(pqr),
         "pqr_abiertas": int(pqr["FechaCierre"].isna().sum()),
@@ -243,6 +250,25 @@ def filtrar_fechas_mes(df_it4, mes, anio):
     queda = motivo == ""
     excluidos = df_it4[~queda].assign(Motivo=motivo[~queda])
     return df_it4[queda].reset_index(drop=True), excluidos
+
+
+LLAVE_UNICIDAD_SUI = ["Codigo de Localidad", "Serial del elemento afectado", "Fecha y hora inicio"]
+
+
+def quitar_duplicados_sui(df_it4):
+    """El SUI no permite repetir Codigo Localidad + Serial + Fecha y hora inicio.
+    Si se repiten, se conserva primero la fila del IT2 (causal 5) y, entre PQR,
+    la de fecha fin mas tardia (la interrupcion mas larga)."""
+    df = df_it4.copy()
+    df["_fin"] = pd.to_datetime(df["Fecha y hora fin"], format=FORMATO_FECHA, errors="coerce")
+    df["_prioridad"] = (df["Causal de no prestacion"] != CAUSAL_MANTENIMIENTO).astype(int)
+    df["_pos"] = range(len(df))
+    ordenado = df.sort_values(["_prioridad", "_fin"], ascending=[True, False], kind="stable")
+    repetida = ordenado.duplicated(LLAVE_UNICIDAD_SUI, keep="first")
+    auxiliares = ["_fin", "_prioridad", "_pos"]
+    quedan = ordenado[~repetida].sort_values("_pos").drop(columns=auxiliares).reset_index(drop=True)
+    quitadas = ordenado[repetida].sort_values("_pos").drop(columns=auxiliares)
+    return quedan, quitadas
 
 
 def a_csv(df):
@@ -304,6 +330,8 @@ def tab_generar(mes, anio):
         c2.metric("Eliminadas (NUI sin BASE)", r["pqr_sin_base"])
         c3.metric("PQR reportadas", r["pqr_reportadas"], help=f"{r['pqr_abiertas']} siguen abiertas (sin FechaCierre)")
         c4.metric("Filas generadas", len(it4_pqr))
+        if r["pqr_repetidas"]:
+            st.info(f"{r['pqr_repetidas']} PQR repetidas (mismo NUI, misma fecha de creacion y de cierre) se dejaron una sola vez.")
         if len(sin_base):
             with st.expander("Ver PQR eliminadas por NUI sin BASE"):
                 st.dataframe(sin_base[["NUI"] + [c for c in df_pqr.columns if c != "NUI"]], use_container_width=True)
@@ -372,11 +400,17 @@ def tab_final(mes, anio):
 
     cruzado, sin_cruce = cruzar_localidad_it1(origen, df_it1)
     final, excluidos = filtrar_fechas_mes(cruzado, mes, anio)
+    final, duplicadas = quitar_duplicados_sui(final)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Filas IT4 editable", len(origen))
     c2.metric("Excluidas por fechas", len(excluidos))
-    c3.metric("Filas IT4 final", len(final))
+    c3.metric("Duplicadas (unicidad SUI)", len(duplicadas))
+    c4.metric("Filas IT4 final", len(final))
+
+    if len(duplicadas):
+        with st.expander("Ver filas quitadas por repetir Codigo Localidad + Serial + Fecha y hora inicio"):
+            st.dataframe(duplicadas, use_container_width=True)
 
     if len(sin_cruce):
         st.warning(f"{len(sin_cruce)} filas con un serial que no aparece en el IT1; se dejo el Codigo de Localidad que ya traian.")
