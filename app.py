@@ -79,6 +79,16 @@ def _leer_excel(contenido):
     return pd.read_excel(io.BytesIO(contenido), sheet_name=0)
 
 
+def corregir_tipo_14(df, columna):
+    """El poste debe ir con tipo 13, no 14 (el 14 genera error en el SUI).
+    Devuelve (df corregido, filas corregidas)."""
+    df = df.copy()
+    tipo = pd.to_numeric(df[columna], errors="coerce")
+    corregidos = int((tipo == 14).sum())
+    df[columna] = tipo.where(tipo != 14, 13).astype("Int64")
+    return df, corregidos
+
+
 def leer_primera_hoja(archivo):
     return _leer_excel(archivo.getvalue()).copy()
 
@@ -98,6 +108,8 @@ def procesar_it2(df_it2, mes, anio):
     df["Fecha y hora de inicio"] = pd.to_datetime(df["Fecha y hora de inicio"], errors="coerce")
     df["Fecha y hora fin"] = pd.to_datetime(df["Fecha y hora fin"], errors="coerce")
 
+    df, corregidos_14 = corregir_tipo_14(df, "Tipo de Elemento")
+
     en_mes = (df["Fecha y hora de inicio"].dt.month == mes) & (df["Fecha y hora de inicio"].dt.year == anio)
     descartados = df[~en_mes]
     df = df[en_mes]
@@ -111,7 +123,7 @@ def procesar_it2(df_it2, mes, anio):
         "Serial del elemento afectado": df["Serial del Elemento"],
         "Observacion": OBSERVACION_MANTENIMIENTO,
     })[COLUMNAS_IT4]
-    return salida.reset_index(drop=True), descartados
+    return salida.reset_index(drop=True), descartados, corregidos_14
 
 
 # ----------------------------------------------------------------------------
@@ -263,7 +275,9 @@ def tab_generar(mes, anio):
     if archivo_it2:
         df_it2 = leer_primera_hoja(archivo_it2)
         validar_columnas(df_it2, COLUMNAS_IT2, "IT2")
-        it4_mtto, descartados = procesar_it2(df_it2, mes, anio)
+        it4_mtto, descartados, corregidos_14 = procesar_it2(df_it2, mes, anio)
+        if corregidos_14:
+            st.info(f"{corregidos_14} filas del IT2 tenian Tipo de Elemento = 14; se corrigieron a 13.")
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Filas en IT2", len(df_it2))
@@ -344,6 +358,10 @@ def tab_final(mes, anio):
         for col in ("Fecha y hora inicio", "Fecha y hora fin"):
             origen[col] = origen[col].fillna("").astype(str).str.strip()
         st.caption(f"Verifica que el archivo corresponda a {MESES[mes]} {anio} (periodo seleccionado en la barra lateral).")
+
+    origen, corregidos_14 = corregir_tipo_14(origen, "Tipo elemento afectado")
+    if corregidos_14:
+        st.info(f"{corregidos_14} filas del IT4 tenian Tipo elemento afectado = 14; se corrigieron a 13.")
 
     archivo_it1 = st.file_uploader("IT1", type=["xlsx"], key="it1")
     if not archivo_it1:
